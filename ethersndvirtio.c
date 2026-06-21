@@ -108,17 +108,15 @@ struct virtio_notif_cap{
 };
 
 struct Ctlr{
+	/* for cleanup */
+	u32int net_len, common_len, notif_len, isr_len;
+
 	Pcidev				  *p;
 	virtio_net_cfg 		  *net_cfg;
 	virtio_pci_common_cfg *common_cfg;
 	virtio_notif_cap 	  *notif_cap;
 	u8int 				  *isr_reg;
 	Ctlr *next;
-	
-
-	/* for cleanup */
-	uvlong net_addr, common_addr, notif_addr, isr_addr;
-	u32int net_len, common_len, notif_len, isr_len;
 };
 
 static Ctlr *ctlrhead = nil;
@@ -166,7 +164,7 @@ feature_negotiation(virtio_pci_common_cfg* cfg)
 }
 
 int
-get_cfg(void **cfg, Pcidev *p, u8int cap, uvlong *addr)
+get_cfg(void **cfg, Pcidev *p, u8int cap)
 {
 	u8int bar;
 	u32int off, len;
@@ -179,8 +177,7 @@ get_cfg(void **cfg, Pcidev *p, u8int cap, uvlong *addr)
 		return 0;
 	}
 	//print("bar: %d; off: 0x%08X; len: 0x%08X\n", bar, off, len);
-	*addr = (p->mem[bar].bar & ~0xF) + off;
-	*cfg = vmap(*addr, len);
+	*cfg = vmap((p->mem[bar].bar & ~0xF) + off, len); /* ~0xF because bits 0-3 used for bar type definition */
 	if (*cfg == nil){
 		//print("\ncommon_cfg is nil!\n");
 		return 0;
@@ -226,7 +223,6 @@ reset(Ether *edev)
 	
 	if(ctlrhead != nil){
 		for(ctlr = ctlrhead; ctlr != nil; ctlr = ctlr->next){
-			print("Iter");
 			if(ctlr->p->tbdf == p->tbdf)
 				return -1;
 		}
@@ -250,7 +246,7 @@ reset(Ether *edev)
 		cfg_type = pcicfgr8(p, cap + cap_cfg_type);
 		if (vendor == cap_cfg_vendor && cfg_type == cap_common_cfg_type){
 			//print("common\n");
-			if((len = get_cfg(&ctlr->common_cfg, p, cap, &ctlr->common_addr)) == 0){
+			if((len = get_cfg(&ctlr->common_cfg, p, cap)) == 0){
 				print("\ncommon_cfg is nil!\n");
 				goto err;
 			}
@@ -258,7 +254,7 @@ reset(Ether *edev)
 		} 
 		else if(vendor == cap_cfg_vendor && cfg_type == cap_device_cfg_type){
 			//print("device\n");
-			if((len = get_cfg(&ctlr->net_cfg, p, cap, &ctlr->net_addr)) == 0){
+			if((len = get_cfg(&ctlr->net_cfg, p, cap)) == 0){
 				print("\nnet_cfg is nil!\n");
 				goto err;
 			}
@@ -267,7 +263,7 @@ reset(Ether *edev)
 		}
 		else if(vendor == cap_cfg_vendor && cfg_type == cap_isr_cfg_type){
 			//print("isr\n");
-			if((len = get_cfg(&ctlr->isr_reg, p, cap, &ctlr->isr_addr)) == 0){
+			if((len = get_cfg(&ctlr->isr_reg, p, cap)) == 0){
 				print("\nisr_cfg is nil!\n");
 				goto err;
 			}
@@ -275,7 +271,7 @@ reset(Ether *edev)
 		}
 		else if(vendor == cap_cfg_vendor && cfg_type == cap_notification_cfg_type){
 			//print("notification\n");
-			if((len = get_cfg(&ctlr->notif_cap, p, cap, &ctlr->notif_addr)) == 0){
+			if((len = get_cfg(&ctlr->notif_cap, p, cap)) == 0){
 				print("\nnotif_cap is nil!\n");
 				goto err;
 			}
@@ -329,12 +325,11 @@ reset(Ether *edev)
 	edev->irq = ctlr->p->intl;
 	edev->tbdf = ctlr->p->tbdf;
 	edev->maxmtu = 1500;
-	edev->port = ctlr->common_addr;
+	edev->port = p->mem[4].bar & ~0xF; /* hardcoded */
 	
 	for(int i = 0; i < Eaddrlen; i++){
 		edev->ea[i] = ctlr->net_cfg->mac[i];
 	}
-
 	print("\nWe are here\n");
 	return 0;
 	
