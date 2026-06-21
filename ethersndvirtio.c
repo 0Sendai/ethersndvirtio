@@ -9,14 +9,17 @@
 #include "../port/etherif.h"
 
 #define GET_FEAT(buf, f) ((buf) >> (f)) & 1
-#define SET_FEAT(buf, f) (buf) |= 1ULL << (f) 
+#define SET_FEAT(buf, f) (buf) |= 1ULL << (f)
+
 
 enum{
-	vendor_id 			= 0x1AF4,
-	device_id 			= 0x1041,
-	cap_cfg_vendor   		= 0x9,
-	cap_common_cfg_type = 0x1,
-	cap_device_cfg_type = 0x4,
+	vendor_id 				  = 0x1AF4,
+	device_id 				  = 0x1041,
+	cap_cfg_vendor   		  = 0x9,
+	cap_common_cfg_type 	  = 0x1,
+	cap_notification_cfg_type = 0x2,
+	cap_isr_cfg_type		  = 0x3,
+	cap_device_cfg_type 	  = 0x4,
 };
 
 enum{ /* PCI capabilities offsets */
@@ -46,6 +49,9 @@ enum{ /* Virtio features */
 
 typedef struct virtio_pci_common_cfg virtio_pci_common_cfg;
 typedef struct virtio_net_cfg virtio_net_cfg;
+typedef struct virtio_notif_cap virtio_notif_cap;
+typedef struct Ctlr Ctlr;
+
 
 struct virtio_pci_common_cfg{  /* About the who device. */
     u32int device_feature_sect; /* read-write */
@@ -87,6 +93,36 @@ struct virtio_net_cfg{
     u32int supported_tunnel_types;
 };
 
+struct virtio_notif_cap{
+	struct{
+		u8int cap_vendor;
+		u8int cap_next; 
+		u8int cap_len;
+		u8int cap_cfg_type;
+		u8int cap_bar;
+		u8int cap_id;	  
+		u32int cap_bar_offset;
+		u32int cap_bar_len;
+	} cap;
+	u32int notify_off_multiplier;
+};
+
+struct Ctlr{
+	Pcidev				  *p;
+	virtio_net_cfg 		  *net_cfg;
+	virtio_pci_common_cfg *common_cfg;
+	virtio_notif_cap 	  *notif_cap;
+	u8int 				  *isr_reg;
+	Ctlr *next;
+	
+
+	/* for cleanup */
+	uvlong net_addr, common_addr, notif_addr, isr_addr;
+	u32int net_len, common_len, notif_len, isr_len;
+};
+
+static Ctlr *ctlrhead = nil;
+
 int
 feature_negotiation(virtio_pci_common_cfg* cfg)
 {
@@ -121,8 +157,8 @@ feature_negotiation(virtio_pci_common_cfg* cfg)
 	cfg->driver_feature_sect = 1;
 	cfg->driver_feature = (u32int)((accepted_feat >> 32) & 0xFFFF);
 
-	cfg->device_status = FEATURES_OK;
-	if (cfg->device_status != FEATURES_OK){
+	cfg->device_status |= FEATURES_OK;
+	if ((cfg->device_status & FEATURES_OK) != FEATURES_OK){
 		print("feature negotiation error\n");
 		return 1;
 	}
@@ -130,68 +166,128 @@ feature_negotiation(virtio_pci_common_cfg* cfg)
 }
 
 int
-reset(Ether*)
+get_cfg(void **cfg, Pcidev *p, u8int cap, uvlong *addr)
 {
-	Pcidev *p;
-	u8int cap = pcicfgr8(p, PciCAP);
-	u8int vendor, cfg_type;
 	u8int bar;
 	u32int off, len;
-	virtio_net_cfg *net_cfg;
-	virtio_pci_common_cfg *common_cfg;
+
+	bar = pcicfgr8(p, cap + cap_bar);
+	off = pcicfgr32(p, cap + cap_bar_offset);
+	len = pcicfgr32(p, cap + cap_bar_len);
+	if (len < 1){
+		print("\nbad bar len\n");
+		return 0;
+	}
+	//print("bar: %d; off: 0x%08X; len: 0x%08X\n", bar, off, len);
+	*addr = (p->mem[bar].bar & ~0xF) + off;
+	*cfg = vmap(*addr, len);
+	if (*cfg == nil){
+		//print("\ncommon_cfg is nil!\n");
+		return 0;
+	}
+	return len;
+}
+
+void
+snd_virtio_attach(Ether *edev)
+{
+	print("\nattach");
+	while(1) {}
+}
+
+void
+snd_virtio_transmit(Ether *edev)
+{
+	print("\ntransmit");
+	while(1) {}
+}
+
+void
+snd_virtio_shutdown(Ether *edev)
+{
+	print("\nshutdown");
+	while(1) {}
+}
+
+int
+reset(Ether *edev)
+{
+	Pcidev *p;
+	u8int cap;
+	u8int vendor, cfg_type;
+	u32int len;
+
+	Ctlr *ctlr;
 
 	p = nil;
 	p = pcimatch(p, vendor_id, device_id);
+	if(p == nil)
+		goto err;
+	
+	if(ctlrhead != nil){
+		for(ctlr = ctlrhead; ctlr != nil; ctlr = ctlr->next){
+			print("Iter");
+			if(ctlr->p->tbdf == p->tbdf)
+				return -1;
+		}
+	}
 	
 	if (p->rid < 1) {
 		print("\nRev < 1!\n");
-		goto w;
+		goto err;
 	}
 
-	common_cfg = net_cfg = nil;
+	ctlr = mallocz(sizeof(Ctlr), 1);
+	if(ctlr == nil){
+		print("Can't allocate ctlr\n");
+		goto err;
+	}
+	ctlr->p = p;
+
+	cap = pcicfgr8(p, PciCAP);
 	while (cap) {
 		vendor = pcicfgr8(p, cap + cap_vendor);
 		cfg_type = pcicfgr8(p, cap + cap_cfg_type);
 		if (vendor == cap_cfg_vendor && cfg_type == cap_common_cfg_type){
-			print("\ncommon\nvendor: 0x%02X\ncfg_type: 0x%02X\n", vendor, cfg_type);
-			bar = pcicfgr8(p, cap + cap_bar);
-			off = pcicfgr32(p, cap + cap_bar_offset);
-			len = pcicfgr32(p, cap + cap_bar_len);
-			if (len < 1){
-				print("\nbad bar len\n");
-				goto w;
-			}
-			print("\nbar: %d\noff: 0x%08X\nlen: 0x%08X\n", bar, off, len);
-			common_cfg = vmap((p->mem[bar].bar & ~0xF) + off, len);
-			if (common_cfg == nil){
+			//print("common\n");
+			if((len = get_cfg(&ctlr->common_cfg, p, cap, &ctlr->common_addr)) == 0){
 				print("\ncommon_cfg is nil!\n");
-				goto w;
+				goto err;
 			}
+			ctlr->common_len = len;
 		} 
 		else if(vendor == cap_cfg_vendor && cfg_type == cap_device_cfg_type){
-			print("\ndevice\nvendor: 0x%02X\ncfg_type: 0x%02X\n", vendor, cfg_type);
-			bar = pcicfgr8(p, cap + cap_bar);
-			off = pcicfgr32(p, cap + cap_bar_offset);
-			len = pcicfgr32(p, cap + cap_bar_len);
-			if (len < 1){
-				print("\nbad bar len\n");
-				goto w;
+			//print("device\n");
+			if((len = get_cfg(&ctlr->net_cfg, p, cap, &ctlr->net_addr)) == 0){
+				print("\nnet_cfg is nil!\n");
+				goto err;
 			}
-			print("\nbar: %d\noff: 0x%08X\nlen: 0x%08X\n", bar, off, len);
-			net_cfg = vmap((p->mem[bar].bar & ~0xF) + off, len);
-			if(net_cfg == nil){
-				print("\nnet_cfg is nil!");
-				goto w;
-			}
+			ctlr->net_len = len;
 			
+		}
+		else if(vendor == cap_cfg_vendor && cfg_type == cap_isr_cfg_type){
+			//print("isr\n");
+			if((len = get_cfg(&ctlr->isr_reg, p, cap, &ctlr->isr_addr)) == 0){
+				print("\nisr_cfg is nil!\n");
+				goto err;
+			}
+			ctlr->isr_len = len;
+		}
+		else if(vendor == cap_cfg_vendor && cfg_type == cap_notification_cfg_type){
+			//print("notification\n");
+			if((len = get_cfg(&ctlr->notif_cap, p, cap, &ctlr->notif_addr)) == 0){
+				print("\nnotif_cap is nil!\n");
+				goto err;
+			}
+			ctlr->notif_len = len;
 		}
 		
 		cap = pcicfgr8(p, cap + cap_next);
 	}
 
-	if (common_cfg == nil || net_cfg == nil){
+	if (ctlr->common_cfg == nil || ctlr->net_cfg == nil || ctlr->notif_cap == nil || ctlr->isr_reg == nil){
 		print("\nDevice discovery error\n");
-		goto w;
+		goto err;
 	}
 	//
 	//print("cfg_type: 0x%02X\n", cfg_type);
@@ -201,37 +297,63 @@ reset(Ether*)
 
 	/* TODO maybe delete retry loop */
 	int retry = 0;
-	print("reset ether\n");
-	common_cfg->device_status = 0;
+	//print("reset ether\n");
+	ctlr->common_cfg->device_status = 0;
 	while(retry < 1024){
-		if(common_cfg->device_status == 0)
+		if(ctlr->common_cfg->device_status == 0)
 			break;
 		retry++;
 	}
-	if (common_cfg->device_status == 0)
-		print("ether was reset\n");
+	if (ctlr->common_cfg->device_status == 0){}
+		//print("ether was reset\n");
 	else{
 		print("reset error\n");
-		goto w;
+		goto err;
 	}
 
-	common_cfg->device_status = ACK;
-	common_cfg->device_status = DRIVER;
+	ctlr->common_cfg->device_status |= ACK;
+	ctlr->common_cfg->device_status |= DRIVER;
 	
-	if(feature_negotiation(common_cfg) != 0){
+	if(feature_negotiation(ctlr->common_cfg) != 0){
 		print("negotiation error\n");
-		goto w;
+		goto err;
 	}
 
-	/* get network config */
-	print("mac: ");
-	for(int i = 0; i < nelem(net_cfg->mac); i++)
-		print("%02X:", net_cfg->mac[i]);
+	ctlrhead = ctlr;
+	ctlr->next = nil;
+	edev->ctlr = ctlr;
+	edev->attach = snd_virtio_attach;
+	edev->transmit = snd_virtio_transmit;
+	edev->shutdown = snd_virtio_shutdown;
+	edev->mbps = 100;
+	edev->irq = ctlr->p->intl;
+	edev->tbdf = ctlr->p->tbdf;
+	edev->maxmtu = 1500;
+	edev->port = ctlr->common_addr;
+	
+	for(int i = 0; i < Eaddrlen; i++){
+		edev->ea[i] = ctlr->net_cfg->mac[i];
+	}
 
-	
 	print("\nWe are here\n");
+	return 0;
 	
-w:
+err:
+	if(ctlr != nil){
+		if(ctlr->common_len)
+			vunmap((void*)ctlr->common_cfg, ctlr->common_len);
+		if(ctlr->net_len)
+			vunmap((void*)ctlr->net_cfg, ctlr->net_len);
+		if(ctlr->notif_len)
+			vunmap((void*)ctlr->notif_cap, ctlr->notif_len);
+		if(ctlr->isr_len)
+			vunmap((void*)ctlr->isr_reg, ctlr->isr_len);
+		free(ctlr);
+	}
+	if(p)
+		pcidisable(p);
+	print("\nmemory freed\n");
+	return -1;
 	while(1) {}
 	//return 0;
 }
