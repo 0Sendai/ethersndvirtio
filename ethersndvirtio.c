@@ -167,6 +167,11 @@ struct virtq_used_elem{
 	u32int len;
 };
 
+enum{
+	RxQueue = 0,
+	TxQueue = 1,
+};
+
 struct Virtq{
 	u16int qsz;
 
@@ -353,14 +358,14 @@ virtq_init(Ctlr *ctlr)
 		//print("mult: %d\n",  notif_cap->notify_off_multiplier);
 	}
 
-	virtq = &ctlr->virtq[0];
+	virtq = &ctlr->virtq[RxQueue];
 	virtq->desc_addresses = mallocz(virtq->qsz * sizeof(u64int*), 1);
 	if(virtq->desc_addresses == nil){
 		print("can't alloc desc_addresses\n");
 		goto virtq_error;
 	}
 	
-	//cfg->queue_select = 0; /* config rx buffers */
+ 	/* config rx buffers */
 	virtq->avail->idx = 0;
 	desc_size = sizeof(virtio_net_hdr) + ETHERNET_FRAME_MAX_SIZE;
 	for(int i = 0; i < virtq->qsz; i++){
@@ -417,7 +422,7 @@ snd_virtio_interrupt(Ureg*, void *arg)
 	Virtq *virtq;
 	edev = arg;
 	ctlr = edev->ctlr;
-	virtq = &ctlr->virtq[0];
+	virtq = &ctlr->virtq[RxQueue];
 
 	u8int isr_status = *ctlr->isr_reg;
 	print("Interrupt\n");
