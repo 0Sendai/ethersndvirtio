@@ -307,15 +307,22 @@ reset(Ether *edev)
 		goto err;
 	}
 
-	ctlr->common_cfg->device_status |= ACK;
-	ctlr->common_cfg->device_status |= DRIVER;
+	ctlr->common_cfg->device_status |= ACK | DRIVER;
+	//ctlr->common_cfg->device_status |= DRIVER;
 	
 	if(feature_negotiation(ctlr->common_cfg) != 0){
 		print("negotiation error\n");
 		goto err;
 	}
 
-	ctlrhead = ctlr;
+	if (ctlrhead == nil)
+		ctlrhead = ctlr;
+	else{
+		Ctlr *c = ctlrhead;
+		while(c->next)
+			c = c->next;
+		c->next = ctlr;		
+	}
 	ctlr->next = nil;
 	edev->ctlr = ctlr;
 	edev->attach = snd_virtio_attach;
