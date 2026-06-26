@@ -105,7 +105,8 @@ struct virtio_notif_cap{
 		u8int cap_len;
 		u8int cap_cfg_type;
 		u8int cap_bar;
-		u8int cap_id;	  
+		u8int cap_id;	 
+		u8int padding[2]; 
 		u32int cap_bar_offset;
 		u32int cap_bar_len;
 	} cap;
@@ -177,6 +178,8 @@ struct Virtq{
 	Vring 			*used;
 	virtq_used_elem *used_ring;
 	u16int          *used_event;
+
+	u32int *notif_addr;
 };
 
 struct Ctlr{
@@ -303,6 +306,8 @@ queue_init(Virtq *virtq)
 	}
 
 	virtq->desc        = desc;
+	virtq->avail	   = avail;
+	virtq->used        = used;
 	virtq->used_ring   = used_ring;
 	virtq->avail_ring  = avail_ring;
 	virtq->used_event  = used_event;
@@ -314,15 +319,16 @@ queue_init(Virtq *virtq)
 int
 virtq_init(Ctlr *ctlr)
 {
-	int nq, qsz;
 	virtio_pci_common_cfg *cfg;
+	virtio_notif_cap *notif_cap;
 	Virtq *virtq;
+	
 
 	cfg = ctlr->common_cfg;
-	nq = NUM_VIRTQ;
-	print("sizeof used_elem: %d\n", sizeof(virtq_used_elem));
+	notif_cap = ctlr->notif_cap;
+	//print("sizeof used_elem: %d\n", sizeof(virtq_used_elem));
 	//print("nq = %d\n", nq);
-	for(int i = 0; i < nq; i++){
+	for(int i = 0; i < NUM_VIRTQ; i++){
 		virtq = &ctlr->virtq[i];
 		cfg->queue_select = i;
 		virtq->qsz = cfg->queue_size;
@@ -335,6 +341,30 @@ virtq_init(Ctlr *ctlr)
 		cfg->queue_desc   = PADDR(&virtq->desc);
 		cfg->queue_driver = PADDR(&virtq->avail);
 		cfg->queue_device = PADDR(&virtq->used);
+
+		virtq->notif_addr = (u32int*)((u8int*)notif_cap + notif_cap->cap.cap_bar_offset + notif_cap->notify_off_multiplier * cfg->queue_notify_off);
+		//print("notif addr: %p\n", virtq->notif_addr);
+		//print("mult: %d\n",  notif_cap->notify_off_multiplier);
+	}
+	virtq = &ctlr->virtq[0];
+	//cfg->queue_select = 0; /* config rx buffers */
+	//print("virtq idx\n");
+	virtq->avail->idx = 0;
+	//print("after\n");
+	for(int i = 0; i < virtq->qsz; i++){
+		virtq->desc[i].addr = (u64int)mallocz(sizeof(virtio_net_hdr) + ETHERNET_FRAME_MAX_SIZE, 1);
+		if(virtq->desc[i].addr == 0){
+			print("Can't allocate rx buffer\n");
+			goto virtq_error;
+		}
+		//print("desc flags\n");
+		virtq->desc[i].flags = 2;
+		//print("ring\n");
+		virtq->avail_ring[i] = i;
+		//print("avail flags\n");
+		virtq->avail->flags = AVAIL_F_NO_INTERRUPT;
+		//print("idx\n");
+		virtq->avail->idx++;
 	}
 
 	
