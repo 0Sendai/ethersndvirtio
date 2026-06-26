@@ -50,13 +50,18 @@ enum{ /* Virtio features */
 typedef struct virtio_pci_common_cfg virtio_pci_common_cfg;
 typedef struct virtio_net_cfg virtio_net_cfg;
 typedef struct virtio_notif_cap virtio_notif_cap;
+typedef struct virtq_desc virtq_desc;
+typedef struct Vring Vring;
+typedef struct Virtq Virtq;
+typedef struct virtq_used_elem virtq_used_elem;
+typedef struct virtio_net_hdr virtio_net_hdr;
 typedef struct Ctlr Ctlr;
 
 
 struct virtio_pci_common_cfg{  /* About the who device. */
-    u32int device_feature_sect; /* read-write */
+    u32int device_feature_select; /* read-write */
     u32int device_feature; /* read-only for driver */
-    u32int driver_feature_sect; /* read-write */
+    u32int driver_feature_select; /* read-write */
     u32int driver_feature; /* read-write */
     u16int config_msix_vector; /* read-write */
     u16int num_queues; /* read-only for driver */
@@ -64,10 +69,10 @@ struct virtio_pci_common_cfg{  /* About the who device. */
     u8int  config_generation; /* read-only for driver */
 
     /* About a specific virtqueue. */
-    u16int queue_sect; /* read-write */
+    u16int queue_select; /* read-write */
     u16int queue_size; /* read-write */
     u16int queue_msix_vector; /* read-write */
-    u16int queue_enab; /* read-write */
+    u16int queue_enable; /* read-write */
     u16int queue_notify_off; /* read-only for driver */
     u64int queue_desc; /* read-write */
     u64int queue_driver; /* read-write */
@@ -107,16 +112,88 @@ struct virtio_notif_cap{
 	u32int notify_off_multiplier;
 };
 
+enum{
+	NET_HDR_F_NEEDS_CSUM = 1,
+	NET_HDR_F_DATA_VALID = 2,
+	NET_HDR_F_RSC_INFO   = 4,
+	NET_HDR_F_GSO_NONE   = 0,
+	NET_HDR_F_GSO_TCPV4  = 1,
+	NET_HDR_F_GSO_UDP    = 3,
+	NET_HDR_F_GSO_TCPV6  = 4,
+	NET_HDR_F_GSO_UDP_L4 = 5,
+	NET_HDR_F_GSO_ECN    = 0x80,
+
+	ETHERNET_FRAME_MAX_SIZE = 1518,
+};
+
+struct virtio_net_hdr{
+	u8int  flags;
+	u8int  gso_type;
+	u16int hdr_len;
+	u16int gso_size;
+	u16int csum_start;
+	u16int csum_offset;
+	u16int num_buffers;
+	u32int hash_value;
+	u16int hash_report;
+	u16int padding;
+};
+
+enum{
+	DESC_F_NEXT     = 1,
+	DESC_F_WRITE    = 2,
+	DESC_F_INDIRECT = 4,
+};
+struct virtq_desc{
+	u64int addr;
+	u32int len;
+	u16int flags;
+	u16int next;
+};
+
+enum{
+	AVAIL_F_NO_INTERRUPT = 1,
+	USED_F_NO_NOTIFY 	 = 1,
+};
+
+struct Vring{
+	u16int flags;
+	u16int idx;
+};
+
+struct virtq_used_elem{
+	u32int id;
+	u32int len;
+};
+
+struct Virtq{
+	u16int qsz;
+
+	virtq_desc  *desc;
+	Vring 		*avail;
+	u16int      *avail_ring;
+	u16int      *avail_event;
+
+	Vring 			*used;
+	virtq_used_elem *used_ring;
+	u16int          *used_event;
+};
+
 struct Ctlr{
 	/* for cleanup */
 	u32int net_len, common_len, notif_len, isr_len;
+	
+	Lock;
+	QLock qlock;
 
+	Ctlr *next;
 	Pcidev				  *p;
 	virtio_net_cfg 		  *net_cfg;
 	virtio_pci_common_cfg *common_cfg;
 	virtio_notif_cap 	  *notif_cap;
 	u8int 				  *isr_reg;
-	Ctlr *next;
+#define NUM_VIRTQ 2 /* TODO add control virtq */
+	Virtq virtq[NUM_VIRTQ];
 };
 
 static Ctlr *ctlrhead = nil;
@@ -132,9 +209,9 @@ feature_negotiation(virtio_pci_common_cfg* cfg)
 	};
 	u8int feat_idx;
 
-	cfg->device_feature_sect = 0;
+	cfg->device_feature_select = 0;
 	feat_lo = cfg->device_feature;
-	cfg->device_feature_sect = 1;
+	cfg->device_feature_select = 1;
 	feat_up = cfg->device_feature;
 	if (feat_lo == feat_up){
 		print("featbuf ident\n");
@@ -150,9 +227,9 @@ feature_negotiation(virtio_pci_common_cfg* cfg)
 		}
 	}
 
-	cfg->driver_feature_sect = 0;
+	cfg->driver_feature_select = 0;
 	cfg->driver_feature = (u32int)(accepted_feat & 0xFFFF);
-	cfg->driver_feature_sect = 1;
+	cfg->driver_feature_select = 1;
 	cfg->driver_feature = (u32int)((accepted_feat >> 32) & 0xFFFF);
 
 	cfg->device_status |= FEATURES_OK;
@@ -183,6 +260,89 @@ get_cfg(void **cfg, Pcidev *p, u8int cap)
 		return 0;
 	}
 	return len;
+}
+
+int 
+queue_init(Virtq *virtq)
+{
+	Vring  *used, *avail;
+	virtq_desc  *desc;
+	u16int *avail_ring;
+	virtq_used_elem *used_ring;
+	u16int *used_event, *avail_event;
+	u16int qsz;
+
+	qsz = virtq->qsz;
+
+	print("alloc for used\n");
+	used = mallocalign(6 + sizeof(virtq_used_elem) * qsz, 4, 0, 0);
+	if(used == nil){
+		print("can't alloc used\n");
+		return -1;
+	}
+	used_ring = (virtq_used_elem*)((u16int*)used + 2);
+	used_event = (u16int*)((u8int*)used_ring + sizeof(virtq_used_elem) * qsz);
+
+	print("alloc for avail\n");
+	avail = mallocalign(6 + 2 * qsz, 2, 0, 0);
+	if(avail == nil){
+		print("can't alloc avail\n");
+		free(used);
+		return -1;
+	}
+	avail_ring = (u16int*)avail + 2;
+	avail_event = (u16int*)((u8int*)avail_ring + 2 * qsz);
+
+	print("alloc for desc\n\n");
+	desc = mallocalign(16 * qsz, 16, 0, 0);
+	if(desc == nil){
+		print("can't alloc desc\n");
+		free(used);
+		free(avail);
+		return -1;
+	}
+
+	virtq->desc        = desc;
+	virtq->used_ring   = used_ring;
+	virtq->avail_ring  = avail_ring;
+	virtq->used_event  = used_event;
+	virtq->avail_event = avail_event;
+
+	return 0;
+}
+
+int
+virtq_init(Ctlr *ctlr)
+{
+	int nq, qsz;
+	virtio_pci_common_cfg *cfg;
+	Virtq *virtq;
+
+	cfg = ctlr->common_cfg;
+	nq = NUM_VIRTQ;
+	print("sizeof used_elem: %d\n", sizeof(virtq_used_elem));
+	//print("nq = %d\n", nq);
+	for(int i = 0; i < nq; i++){
+		virtq = &ctlr->virtq[i];
+		cfg->queue_select = i;
+		virtq->qsz = cfg->queue_size;
+		
+		print("alloc virtq %d\n", i);
+		if(queue_init(virtq) < 0){
+			print("Can't init virtq %d\n", i);
+			goto virtq_error;
+		}
+		cfg->queue_desc   = PADDR(&virtq->desc);
+		cfg->queue_driver = PADDR(&virtq->avail);
+		cfg->queue_device = PADDR(&virtq->used);
+	}
+
+	
+	return 0;
+
+virtq_error:
+	print("\nvirtq error\n");
+	while(1) {}
 }
 
 void
@@ -337,9 +497,11 @@ reset(Ether *edev)
 	for(int i = 0; i < Eaddrlen; i++){
 		edev->ea[i] = ctlr->net_cfg->mac[i];
 	}
+	virtq_init(ctlr);
+
 	print("\nWe are here\n");
-	return 0;
-	
+	//return 0;
+	goto l;
 err:
 	if(ctlr != nil){
 		if(ctlr->common_len)
@@ -356,6 +518,7 @@ err:
 		pcidisable(p);
 	print("\nmemory freed\n");
 	return -1;
+l:
 	while(1) {}
 	//return 0;
 }
