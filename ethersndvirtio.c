@@ -171,6 +171,7 @@ struct Virtq{
 	u16int qsz;
 
 	virtq_desc  *desc;
+	u64int 		*desc_addresses;
 	Vring 		*avail;
 	u16int      *avail_ring;
 	u16int      *avail_event;
@@ -283,6 +284,7 @@ queue_init(Virtq *virtq)
 		print("can't alloc used\n");
 		return -1;
 	}
+	memset(used, 0, 6 + sizeof(virtq_used_elem) * qsz);
 	used_ring = (virtq_used_elem*)((u16int*)used + 2);
 	used_event = (u16int*)((u8int*)used_ring + sizeof(virtq_used_elem) * qsz);
 
@@ -293,6 +295,7 @@ queue_init(Virtq *virtq)
 		free(used);
 		return -1;
 	}
+	memset(avail, 0, 6 + 2 * qsz);
 	avail_ring = (u16int*)avail + 2;
 	avail_event = (u16int*)((u8int*)avail_ring + 2 * qsz);
 
@@ -304,6 +307,7 @@ queue_init(Virtq *virtq)
 		free(avail);
 		return -1;
 	}
+	memset(desc, 0, 16 * qsz);
 
 	virtq->desc        = desc;
 	virtq->avail	   = avail;
@@ -322,6 +326,7 @@ virtq_init(Ctlr *ctlr)
 	virtio_pci_common_cfg *cfg;
 	virtio_notif_cap *notif_cap;
 	Virtq *virtq;
+	u32int desc_size;
 	
 
 	cfg = ctlr->common_cfg;
@@ -338,26 +343,37 @@ virtq_init(Ctlr *ctlr)
 			print("Can't init virtq %d\n", i);
 			goto virtq_error;
 		}
-		cfg->queue_desc   = PADDR(&virtq->desc);
-		cfg->queue_driver = PADDR(&virtq->avail);
-		cfg->queue_device = PADDR(&virtq->used);
+		cfg->queue_desc   = PADDR(virtq->desc);
+		cfg->queue_driver = PADDR(virtq->avail);
+		cfg->queue_device = PADDR(virtq->used);
+		cfg->queue_enable = 1;
 
 		virtq->notif_addr = (u32int*)((u8int*)notif_cap + notif_cap->cap.cap_bar_offset + notif_cap->notify_off_multiplier * cfg->queue_notify_off);
 		//print("notif addr: %p\n", virtq->notif_addr);
 		//print("mult: %d\n",  notif_cap->notify_off_multiplier);
 	}
+
 	virtq = &ctlr->virtq[0];
+	virtq->desc_addresses = mallocz(virtq->qsz * sizeof(u64int*), 1);
+	if(virtq->desc_addresses == nil){
+		print("can't alloc desc_addresses\n");
+		goto virtq_error;
+	}
+	
 	//cfg->queue_select = 0; /* config rx buffers */
 	virtq->avail->idx = 0;
+	desc_size = sizeof(virtio_net_hdr) + ETHERNET_FRAME_MAX_SIZE;
 	for(int i = 0; i < virtq->qsz; i++){
-		virtq->desc[i].addr = (u64int)mallocz(sizeof(virtio_net_hdr) + ETHERNET_FRAME_MAX_SIZE, 1);
-		if(virtq->desc[i].addr == 0){
+		virtq->desc_addresses[i] = (u64int)mallocz(desc_size, 1);
+		if(virtq->desc_addresses[i] == 0){
 			print("Can't allocate rx buffer\n");
 			goto virtq_error;
 		}
-		virtq->desc[i].flags = 2;
+		virtq->desc[i].addr = PADDR(virtq->desc_addresses[i]);
+		virtq->desc[i].flags = DESC_F_WRITE;
+		virtq->desc[i].len = desc_size;
 		virtq->avail_ring[i] = i;
-		virtq->avail->flags = AVAIL_F_NO_INTERRUPT;
+		//virtq->avail->flags = AVAIL_F_NO_INTERRUPT;
 		virtq->avail->idx++;
 	}
 
@@ -372,7 +388,10 @@ virtq_error:
 void
 snd_virtio_attach(Ether *edev)
 {
-	print("\nattach");
+	Ctlr *ctlr;
+	ctlr = edev->ctlr;
+	print("\nattach\n");
+	ctlr->common_cfg->device_status |= DRIVER_OK;
 	while(1) {}
 }
 
@@ -390,6 +409,36 @@ snd_virtio_shutdown(Ether *edev)
 	while(1) {}
 }
 
+void
+snd_virtio_interrupt(Ureg*, void *arg)
+{
+	Ether *edev;
+	Ctlr *ctlr;
+	Virtq *virtq;
+	edev = arg;
+	ctlr = edev->ctlr;
+	virtq = &ctlr->virtq[0];
+
+	u8int isr_status = *ctlr->isr_reg;
+	print("Interrupt\n");
+	print("reg: %x\n", isr_status);
+	u16int used_idx = virtq->used->idx;
+	u16int avail_idx = virtq->avail->idx;
+	u16int used_len = virtq->used_ring[0].len;
+	u16int used_id = virtq->used_ring[0].id;
+	
+	print("used idx: %d\n", used_idx);
+	print("avail_idx: %d\nused0_len: %d\nused0_id: %d\n", avail_idx, used_len, used_id);
+	while(1) {}
+}
+
+void
+virtq_notify(u32int *addr, int x)
+{
+	coherence();
+	*addr = x;
+}
+
 int
 reset(Ether *edev)
 {
@@ -399,7 +448,8 @@ reset(Ether *edev)
 	u32int len;
 
 	Ctlr *ctlr;
-
+	
+	ctlr = nil;
 	p = nil;
 	p = pcimatch(p, vendor_id, device_id);
 	if(p == nil)
@@ -516,16 +566,20 @@ reset(Ether *edev)
 	edev->irq = ctlr->p->intl;
 	edev->tbdf = ctlr->p->tbdf;
 	edev->maxmtu = 1500;
+	edev->link = 1;
 	edev->port = p->mem[4].bar & ~0xF; /* hardcoded */
 	
 	for(int i = 0; i < Eaddrlen; i++){
 		edev->ea[i] = ctlr->net_cfg->mac[i];
 	}
 	virtq_init(ctlr);
-
+	intrenable(edev->irq, snd_virtio_interrupt, edev, edev->tbdf, edev->name);
+	//print("tbdf=%#ux\n", ctlr->p->tbdf);
+	//print("intl=%#ux\n", ctlr->p->intl);
+	virtq_notify(ctlr->virtq[0].notif_addr, 0);
 	print("\nWe are here\n");
-	//return 0;
-	goto l;
+	return 0;
+	//goto l;
 err:
 	if(ctlr != nil){
 		if(ctlr->common_len)
