@@ -348,22 +348,16 @@ virtq_init(Ctlr *ctlr)
 	}
 	virtq = &ctlr->virtq[0];
 	//cfg->queue_select = 0; /* config rx buffers */
-	//print("virtq idx\n");
 	virtq->avail->idx = 0;
-	//print("after\n");
 	for(int i = 0; i < virtq->qsz; i++){
 		virtq->desc[i].addr = (u64int)mallocz(sizeof(virtio_net_hdr) + ETHERNET_FRAME_MAX_SIZE, 1);
 		if(virtq->desc[i].addr == 0){
 			print("Can't allocate rx buffer\n");
 			goto virtq_error;
 		}
-		//print("desc flags\n");
 		virtq->desc[i].flags = 2;
-		//print("ring\n");
 		virtq->avail_ring[i] = i;
-		//print("avail flags\n");
 		virtq->avail->flags = AVAIL_F_NO_INTERRUPT;
-		//print("idx\n");
 		virtq->avail->idx++;
 	}
 
