@@ -58,6 +58,7 @@ typedef struct virtio_net_hdr virtio_net_hdr;
 typedef struct Ctlr Ctlr;
 
 
+#pragma pack on
 struct virtio_pci_common_cfg{  /* About the who device. */
     u32int device_feature_select; /* read-write */
     u32int device_feature; /* read-only for driver */
@@ -85,6 +86,7 @@ struct virtio_pci_common_cfg{  /* About the who device. */
     u16int admin_queue_num; /* read-only for driver */
 };
 
+//#pragma pack on
 struct virtio_net_cfg{
     u8int mac[6];
     u16int status;
@@ -98,6 +100,7 @@ struct virtio_net_cfg{
     u32int supported_tunnel_types;
 };
 
+//#pragma pack on
 struct virtio_notif_cap{
 	struct{
 		u8int cap_vendor;
@@ -125,8 +128,10 @@ enum{
 	NET_HDR_F_GSO_ECN    = 0x80,
 
 	ETHERNET_FRAME_MAX_SIZE = 1518,
+#define ETHERNET_BUF_SIZE sizeof(virtio_net_hdr) + ETHERNET_FRAME_MAX_SIZE
 };
 
+//#pragma pack on
 struct virtio_net_hdr{
 	u8int  flags;
 	u8int  gso_type;
@@ -135,9 +140,7 @@ struct virtio_net_hdr{
 	u16int csum_start;
 	u16int csum_offset;
 	u16int num_buffers;
-	u32int hash_value;
-	u16int hash_report;
-	u16int padding;
+
 };
 
 enum{
@@ -145,6 +148,8 @@ enum{
 	DESC_F_WRITE    = 2,
 	DESC_F_INDIRECT = 4,
 };
+
+//#pragma pack on
 struct virtq_desc{
 	u64int addr;
 	u32int len;
@@ -157,11 +162,13 @@ enum{
 	USED_F_NO_NOTIFY 	 = 1,
 };
 
+//#pragma pack on
 struct Vring{
 	u16int flags;
 	u16int idx;
 };
 
+//#pragma pack on
 struct virtq_used_elem{
 	u32int id;
 	u32int len;
@@ -171,18 +178,21 @@ enum{
 	RxQueue = 0,
 	TxQueue = 1,
 };
+#pragma pack off
 
 struct Virtq{
 	u16int qsz;
 
 	virtq_desc  *desc;
-	u64int 		*desc_addresses;
+	u64int 		**desc_virtual_addresses;
 	Vring 		*avail;
+	u16int		avail_idx;
 	u16int      *avail_ring;
 	u16int      *avail_event;
 
 	Vring 			*used;
 	virtq_used_elem *used_ring;
+	u16int 			last_used_idx;
 	u16int          *used_event;
 
 	u32int *notif_addr;
@@ -231,7 +241,7 @@ feature_negotiation(virtio_pci_common_cfg* cfg)
 
 	for(feat_idx = 0; feat_idx < nelem(supported_features); feat_idx++){
 		if(GET_FEAT(feat, supported_features[feat_idx])){
-			print("supported: %d\n", supported_features[feat_idx]);
+			//print("supported: %d\n", supported_features[feat_idx]);
 			SET_FEAT(accepted_feat, supported_features[feat_idx]);
 		}
 	}
@@ -271,6 +281,13 @@ get_cfg(void **cfg, Pcidev *p, u8int cap)
 	return len;
 }
 
+void
+virtq_notify(u32int *addr, int x)
+{
+	coherence();
+	*addr = x;
+}
+
 int 
 queue_init(Virtq *virtq)
 {
@@ -283,7 +300,7 @@ queue_init(Virtq *virtq)
 
 	qsz = virtq->qsz;
 
-	print("alloc for used\n");
+	//print("alloc for used\n");
 	used = mallocalign(6 + sizeof(virtq_used_elem) * qsz, 4, 0, 0);
 	if(used == nil){
 		print("can't alloc used\n");
@@ -293,7 +310,7 @@ queue_init(Virtq *virtq)
 	used_ring = (virtq_used_elem*)((u16int*)used + 2);
 	used_event = (u16int*)((u8int*)used_ring + sizeof(virtq_used_elem) * qsz);
 
-	print("alloc for avail\n");
+	//print("alloc for avail\n");
 	avail = mallocalign(6 + 2 * qsz, 2, 0, 0);
 	if(avail == nil){
 		print("can't alloc avail\n");
@@ -304,7 +321,7 @@ queue_init(Virtq *virtq)
 	avail_ring = (u16int*)avail + 2;
 	avail_event = (u16int*)((u8int*)avail_ring + 2 * qsz);
 
-	print("alloc for desc\n\n");
+	//print("alloc for desc\n\n");
 	desc = mallocalign(16 * qsz, 16, 0, 0);
 	if(desc == nil){
 		print("can't alloc desc\n");
@@ -343,7 +360,7 @@ virtq_init(Ctlr *ctlr)
 		cfg->queue_select = i;
 		virtq->qsz = cfg->queue_size;
 		
-		print("alloc virtq %d\n", i);
+		//print("alloc virtq %d\n", i);
 		if(queue_init(virtq) < 0){
 			print("Can't init virtq %d\n", i);
 			goto virtq_error;
@@ -359,28 +376,29 @@ virtq_init(Ctlr *ctlr)
 	}
 
 	virtq = &ctlr->virtq[RxQueue];
-	virtq->desc_addresses = mallocz(virtq->qsz * sizeof(u64int*), 1);
-	if(virtq->desc_addresses == nil){
-		print("can't alloc desc_addresses\n");
+	virtq->desc_virtual_addresses = mallocz(virtq->qsz * sizeof(u64int*), 1);
+	if(virtq->desc_virtual_addresses == nil){
+		print("can't alloc desc_virtual_addresses\n");
 		goto virtq_error;
 	}
 	
  	/* config rx buffers */
 	virtq->avail->idx = 0;
-	desc_size = sizeof(virtio_net_hdr) + ETHERNET_FRAME_MAX_SIZE;
+	desc_size = ETHERNET_BUF_SIZE;
 	for(int i = 0; i < virtq->qsz; i++){
-		virtq->desc_addresses[i] = (u64int)mallocz(desc_size, 1);
-		if(virtq->desc_addresses[i] == 0){
+		virtq->desc_virtual_addresses[i] = mallocz(desc_size, 1);
+		if(virtq->desc_virtual_addresses[i] == nil){
 			print("Can't allocate rx buffer\n");
 			goto virtq_error;
 		}
-		virtq->desc[i].addr = PADDR(virtq->desc_addresses[i]);
+		virtq->desc[i].addr = (u64int)PADDR(virtq->desc_virtual_addresses[i]);
 		virtq->desc[i].flags = DESC_F_WRITE;
 		virtq->desc[i].len = desc_size;
 		virtq->avail_ring[i] = i;
 		//virtq->avail->flags = AVAIL_F_NO_INTERRUPT;
-		virtq->avail->idx++;
+		virtq->avail_idx++;
 	}
+	virtq->avail->idx = virtq->avail_idx;
 
 	
 	return 0;
@@ -395,9 +413,9 @@ snd_virtio_attach(Ether *edev)
 {
 	Ctlr *ctlr;
 	ctlr = edev->ctlr;
-	print("\nattach\n");
+	//print("\nattach\n");
 	ctlr->common_cfg->device_status |= DRIVER_OK;
-	while(1) {}
+	//while(1) {}
 }
 
 void
@@ -414,6 +432,117 @@ snd_virtio_shutdown(Ether *edev)
 	while(1) {}
 }
 
+char*
+snd_virtio_ifstat(void *a, char *p, char *e)
+{
+	Ether *edev;
+	Ctlr *ctlr;
+	
+	if(p >= e)
+		return p;
+	
+	edev = a;
+	ctlr = edev->ctlr;
+
+	p = seprint(p, e, "inpackets: %lld\n", edev->inpackets);
+	p = seprint(p, e, "outpackets: %lld\n", edev->outpackets);
+	p = seprint(p, e, "mbps: %d\n", edev->mbps);
+	p = seprint(p, e, "link: %d\n", edev->link);
+	p = seprint(p, e, "mac: ");
+	for(int i = 0; i < Eaddrlen; i++){
+		if(i != Eaddrlen - 1)
+			p = seprint(p, e, "%02X:", edev->ea[i]);
+		else
+			p = seprint(p, e, "%02X\n", edev->ea[i]);
+	}
+	p = seprint(p, e, "maxmtu: %d\n", edev->maxmtu);
+	return p;
+}
+void
+snd_virtio_multicast(void *arg, uchar*, int)
+{
+	print("\nmulticast\n");
+	//while(1) {}
+}
+
+void
+snd_virtio_promiscuous(void *arg, int on)
+{
+	print("\npromiscuous\n");
+	//while(1) {}
+}
+
+void
+snd_virtio_receive(Ether *edev)
+{
+	Ctlr *ctlr;
+	Virtq *virtq;
+	Block *block;
+	virtq_used_elem *elem;
+	u64int *desc_addr;
+	u16int qsz;
+	int block_size;
+	
+	//print("receive\n");
+
+	ctlr = edev->ctlr;
+	virtq = &ctlr->virtq[RxQueue];
+	qsz = virtq->qsz;
+
+	while(virtq->last_used_idx != virtq->used->idx){
+		elem = &virtq->used_ring[virtq->last_used_idx % qsz];
+		block_size = elem->len - sizeof(virtio_net_hdr);
+		block = iallocb(block_size);
+		if(block == nil){
+			print("can't alloc block\n");
+			return;
+		}
+		//print("rp=%p, wp=%p, base=%p\n", block->rp, block->wp, block->base);
+		desc_addr = virtq->desc_virtual_addresses[elem->id];
+		memmove(block->wp, ((u8int*)desc_addr)+sizeof(virtio_net_hdr), block_size);
+	
+		block->wp += block_size;
+		
+		
+		Etherpkt *ep = (Etherpkt*)block->rp;
+		//uchar *p = block->rp;
+		//print("raw receive: ");
+	for(int i = 0; i < 16; i++) {}
+    	//print("%02x ", p[i]);
+	//print("size: %d\n", sizeof(virtio_net_hdr));
+	//print("\n");
+/*
+		print("\ndmac: ");
+		for(int i = 0; i < 6; i++){
+			print("%x:", ep->d[i]);
+		}
+		print("\n");
+*/
+		//print("receive rp=%p wp=%p blen=%d\n", block->rp, block->wp, BLEN(block));
+
+/*
+		print(" ; smac: ");
+		for(int i = 0; i < 6; i++){
+			print("%x:", ep->s[i]);
+		}
+		u16int type = (ep->type[0] << 8) | ep->type[1];
+		print(" ; type: %x\n", type);
+*/
+		etheriq(edev, block);
+		virtq->avail_ring[virtq->avail_idx++ % qsz] = elem->id;
+		virtq->last_used_idx++;
+		
+	}
+	coherence();
+	virtq->avail->idx = virtq->avail_idx;
+	virtq_notify(virtq->notif_addr, RxQueue);
+	
+	//print("used_idx: %d; avail_idx: %d\n",
+	//	virtq->used->idx, virtq->avail->idx);
+	
+	//print("End recv\n");
+}
+
 void
 snd_virtio_interrupt(Ureg*, void *arg)
 {
@@ -424,8 +553,9 @@ snd_virtio_interrupt(Ureg*, void *arg)
 	ctlr = edev->ctlr;
 	virtq = &ctlr->virtq[RxQueue];
 
-	u8int isr_status = *ctlr->isr_reg;
-	print("Interrupt\n");
+	//u8int isr_status = *ctlr->isr_reg;
+	//print("Interrupt\n");
+	/*
 	print("reg: %x\n", isr_status);
 	u16int used_idx = virtq->used->idx;
 	u16int avail_idx = virtq->avail->idx;
@@ -434,15 +564,16 @@ snd_virtio_interrupt(Ureg*, void *arg)
 	
 	print("used idx: %d\n", used_idx);
 	print("avail_idx: %d\nused0_len: %d\nused0_id: %d\n", avail_idx, used_len, used_id);
-	while(1) {}
+	*/
+
+	if(*ctlr->isr_reg & 1)
+		snd_virtio_receive(edev);
+	else
+		print("\nNon receive interrupt\n");
+	//while(1) {}
 }
 
-void
-virtq_notify(u32int *addr, int x)
-{
-	coherence();
-	*addr = x;
-}
+
 
 int
 reset(Ether *edev)
@@ -564,24 +695,30 @@ reset(Ether *edev)
 	}
 	ctlr->next = nil;
 	edev->ctlr = ctlr;
+	edev->arg = edev;
 	edev->attach = snd_virtio_attach;
 	edev->transmit = snd_virtio_transmit;
 	edev->shutdown = snd_virtio_shutdown;
 	edev->mbps = 100;
 	edev->irq = ctlr->p->intl;
 	edev->tbdf = ctlr->p->tbdf;
+	edev->minmtu = 68;
 	edev->maxmtu = 1500;
 	edev->link = 1;
 	edev->port = p->mem[4].bar & ~0xF; /* hardcoded */
+	edev->ifstat = snd_virtio_ifstat;
+	edev->multicast = snd_virtio_multicast;
+	edev->promiscuous = snd_virtio_promiscuous;
 	
 	for(int i = 0; i < Eaddrlen; i++){
 		edev->ea[i] = ctlr->net_cfg->mac[i];
 	}
 	virtq_init(ctlr);
+	pcisetbme(ctlr->p);
 	intrenable(edev->irq, snd_virtio_interrupt, edev, edev->tbdf, edev->name);
 	//print("tbdf=%#ux\n", ctlr->p->tbdf);
 	//print("intl=%#ux\n", ctlr->p->intl);
-	virtq_notify(ctlr->virtq[0].notif_addr, 0);
+	virtq_notify(ctlr->virtq[0].notif_addr, RxQueue);
 	print("\nWe are here\n");
 	return 0;
 	//goto l;
