@@ -31,6 +31,7 @@ enum{ /* PCI capabilities offsets */
 	cap_id 		   = 0x5, /* Multiple capabilities of the same type */
 	cap_bar_offset = 0x8, /* Offset within bar. */
 	cap_bar_len    = 0xC, /* Length of the structure in bar */
+	cap_notify_off_multiplier = 0x10,
 };
 
 enum{ /* Virtio status field bits */
@@ -49,7 +50,7 @@ enum{ /* Virtio features */
 
 typedef struct virtio_pci_common_cfg virtio_pci_common_cfg;
 typedef struct virtio_net_cfg virtio_net_cfg;
-typedef struct virtio_notif_cap virtio_notif_cap;
+//typedef struct virtio_notif_cap virtio_notif_cap;
 typedef struct virtq_desc virtq_desc;
 typedef struct Vring Vring;
 typedef struct Virtq Virtq;
@@ -60,61 +61,64 @@ typedef struct Ctlr Ctlr;
 
 #pragma pack on
 struct virtio_pci_common_cfg{  /* About the who device. */
-    u32int device_feature_select; /* read-write */
-    u32int device_feature; /* read-only for driver */
-    u32int driver_feature_select; /* read-write */
-    u32int driver_feature; /* read-write */
-    u16int config_msix_vector; /* read-write */
-    u16int num_queues; /* read-only for driver */
-    u8int  device_status; /* read-write */
-    u8int  config_generation; /* read-only for driver */
+    volatile u32int device_feature_select; /* read-write */
+    volatile u32int device_feature; /* read-only for driver */
+    volatile u32int driver_feature_select; /* read-write */
+    volatile u32int driver_feature; /* read-write */
+    volatile u16int config_msix_vector; /* read-write */
+    volatile u16int num_queues; /* read-only for driver */
+    volatile u8int  device_status; /* read-write */
+    volatile u8int  config_generation; /* read-only for driver */
 
     /* About a specific virtqueue. */
-    u16int queue_select; /* read-write */
-    u16int queue_size; /* read-write */
-    u16int queue_msix_vector; /* read-write */
-    u16int queue_enable; /* read-write */
-    u16int queue_notify_off; /* read-only for driver */
-    u64int queue_desc; /* read-write */
-    u64int queue_driver; /* read-write */
-    u64int queue_device; /* read-write */
-    u16int queue_notif_config_data; /* read-only for driver */
-    u16int queue_reset; /* read-write */
+    volatile u16int queue_select; /* read-write */
+    volatile u16int queue_size; /* read-write */
+    volatile u16int queue_msix_vector; /* read-write */
+    volatile u16int queue_enable; /* read-write */
+    volatile u16int queue_notify_off; /* read-only for driver */
+    volatile u64int queue_desc; /* read-write */
+    volatile u64int queue_driver; /* read-write */
+    volatile u64int queue_device; /* read-write */
+    volatile u16int queue_notif_config_data; /* read-only for driver */
+    volatile u16int queue_reset; /* read-write */
 
     /* About the administration virtqueue. */
-    u16int admin_queue_index; /* read-only for driver */
-    u16int admin_queue_num; /* read-only for driver */
+    volatile u16int admin_queue_index; /* read-only for driver */
+    volatile u16int admin_queue_num; /* read-only for driver */
 };
 
 //#pragma pack on
 struct virtio_net_cfg{
-    u8int mac[6];
-    u16int status;
-    u16int max_virtqueue_pairs;
-    u16int mtu;
-    u32int speed;
-    u8int dupx;
-    u8int rss_max_key_size;
-    u16int rss_max_indirection_tab_ngth;
-    u32int supported_hash_types;
-    u32int supported_tunnel_types;
+    volatile u8int mac[6];
+    volatile u16int status;
+    volatile u16int max_virtqueue_pairs;
+   volatile u16int mtu;
+  volatile  u32int speed;
+   volatile u8int dupx;
+   volatile u8int rss_max_key_size;
+   volatile u16int rss_max_indirection_tab_ngth;
+   volatile u32int supported_hash_types;
+   volatile u32int supported_tunnel_types;
 };
-
+/*
+struct notif_cap_base{
+	volatile	u8int cap_vendor;
+	volatile	u8int cap_next; 
+	volatile	u8int cap_len;
+	volatile	u8int cap_cfg_type;
+	volatile	u8int cap_bar;
+	volatile	u8int cap_id;	 
+	volatile	u8int padding[2]; 
+	volatile	u32int cap_bar_offset;
+	volatile	u32int cap_bar_len;
+	};
 //#pragma pack on
 struct virtio_notif_cap{
-	struct{
-		u8int cap_vendor;
-		u8int cap_next; 
-		u8int cap_len;
-		u8int cap_cfg_type;
-		u8int cap_bar;
-		u8int cap_id;	 
-		u8int padding[2]; 
-		u32int cap_bar_offset;
-		u32int cap_bar_len;
-	} cap;
-	u32int notify_off_multiplier;
+	volatile struct notif_cap_base;
+volatile	u32int notify_off_multiplier;
 };
+
+*/
 
 enum{
 	NET_HDR_F_NEEDS_CSUM = 1,
@@ -133,13 +137,13 @@ enum{
 
 //#pragma pack on
 struct virtio_net_hdr{
-	u8int  flags;
-	u8int  gso_type;
-	u16int hdr_len;
-	u16int gso_size;
-	u16int csum_start;
-	u16int csum_offset;
-	u16int num_buffers;
+volatile	u8int  flags;
+volatile	u8int  gso_type;
+volatile	u16int hdr_len;
+volatile	u16int gso_size;
+volatile	u16int csum_start;
+volatile	u16int csum_offset;
+volatile	u16int num_buffers;
 
 };
 
@@ -164,14 +168,14 @@ enum{
 
 //#pragma pack on
 struct Vring{
-	u16int flags;
-	u16int idx;
+volatile	u16int flags;
+volatile	volatile u16int idx;
 };
 
 //#pragma pack on
 struct virtq_used_elem{
-	u32int id;
-	u32int len;
+	volatile u32int id;
+	volatile u32int len;
 };
 
 enum{
@@ -183,19 +187,22 @@ enum{
 struct Virtq{
 	u16int qsz;
 
-	virtq_desc  *desc;
+volatile	virtq_desc  *desc;
 	u64int 		**desc_virtual_addresses;
-	Vring 		*avail;
+	u16int 		*free_desc_list;
+	u16int		free_desc_idx;
+	volatile Vring 		*avail;
 	u16int		avail_idx;
-	u16int      *avail_ring;
-	u16int      *avail_event;
+	volatile u16int      *avail_ring;
+volatile	u16int      *avail_event;
 
-	Vring 			*used;
-	virtq_used_elem *used_ring;
+volatile	Vring 			*used;
+volatile	virtq_used_elem *used_ring;
 	u16int 			last_used_idx;
-	u16int          *used_event;
+volatile	u16int          *used_event;
 
-	u32int *notif_addr;
+volatile	u16int *notif_addr;
+			
 };
 
 struct Ctlr{
@@ -207,12 +214,14 @@ struct Ctlr{
 
 	Ctlr *next;
 	Pcidev				  *p;
-	virtio_net_cfg 		  *net_cfg;
-	virtio_pci_common_cfg *common_cfg;
-	virtio_notif_cap 	  *notif_cap;
-	u8int 				  *isr_reg;
+volatile	virtio_net_cfg 		  *net_cfg;
+volatile	virtio_pci_common_cfg *common_cfg;
+//volatile	virtio_notif_cap 	  *notif_cap;
+volatile	u32int				  *notif_addr;
+			u32int notify_off_multiplier;
+	volatile u8int 				  *isr_reg;
 #define NUM_VIRTQ 2 /* TODO add control virtq */
-	Virtq virtq[NUM_VIRTQ];
+volatile	Virtq virtq[NUM_VIRTQ];
 };
 
 static Ctlr *ctlrhead = nil;
@@ -247,9 +256,9 @@ feature_negotiation(virtio_pci_common_cfg* cfg)
 	}
 
 	cfg->driver_feature_select = 0;
-	cfg->driver_feature = (u32int)(accepted_feat & 0xFFFF);
+	cfg->driver_feature = (u32int)(accepted_feat & 0xFFFFFFFF);
 	cfg->driver_feature_select = 1;
-	cfg->driver_feature = (u32int)((accepted_feat >> 32) & 0xFFFF);
+	cfg->driver_feature = (u32int)((accepted_feat >> 32) & 0xFFFFFFFF);
 
 	cfg->device_status |= FEATURES_OK;
 	if ((cfg->device_status & FEATURES_OK) != FEATURES_OK){
@@ -282,8 +291,9 @@ get_cfg(void **cfg, Pcidev *p, u8int cap)
 }
 
 void
-virtq_notify(u32int *addr, int x)
+virtq_notify(u16int *addr, int x)
 {
+	//print("\n\nnotify; x=%d\n", x);
 	coherence();
 	*addr = x;
 }
@@ -346,13 +356,13 @@ int
 virtq_init(Ctlr *ctlr)
 {
 	virtio_pci_common_cfg *cfg;
-	virtio_notif_cap *notif_cap;
+	u32int *notif_addr;
 	Virtq *virtq;
 	u32int desc_size;
-	
+	u16int free_idx;
 
 	cfg = ctlr->common_cfg;
-	notif_cap = ctlr->notif_cap;
+	notif_addr = ctlr->notif_addr;
 	//print("sizeof used_elem: %d\n", sizeof(virtq_used_elem));
 	//print("nq = %d\n", nq);
 	for(int i = 0; i < NUM_VIRTQ; i++){
@@ -368,19 +378,54 @@ virtq_init(Ctlr *ctlr)
 		cfg->queue_desc   = PADDR(virtq->desc);
 		cfg->queue_driver = PADDR(virtq->avail);
 		cfg->queue_device = PADDR(virtq->used);
-		cfg->queue_enable = 1;
+		//cfg->queue_enable = 1;
+		print("queue %d enable=%d ready=%d\n",
+    i,
+    cfg->queue_enable,
+    cfg->queue_enable);
+		virtq->desc_virtual_addresses = mallocz(virtq->qsz * sizeof(u64int*), 1);
+		if(virtq->desc_virtual_addresses == nil){
+			print("can't alloc desc_virtual_addresses\n");
+			goto virtq_error;
+		}
 
-		virtq->notif_addr = (u32int*)((u8int*)notif_cap + notif_cap->cap.cap_bar_offset + notif_cap->notify_off_multiplier * cfg->queue_notify_off);
-		//print("notif addr: %p\n", virtq->notif_addr);
+		virtq->notif_addr = (u16int*)((u8int*)notif_addr + ctlr->notify_off_multiplier * cfg->queue_notify_off);
+		print("notif addr: %p\n", virtq->notif_addr);
 		//print("mult: %d\n",  notif_cap->notify_off_multiplier);
 	}
 
-	virtq = &ctlr->virtq[RxQueue];
-	virtq->desc_virtual_addresses = mallocz(virtq->qsz * sizeof(u64int*), 1);
-	if(virtq->desc_virtual_addresses == nil){
-		print("can't alloc desc_virtual_addresses\n");
+
+	print("RX notif=%p\n", ctlr->virtq[RxQueue].notif_addr);
+print("TX notif=%p\n", ctlr->virtq[TxQueue].notif_addr);
+	/* tx */
+	virtq = &ctlr->virtq[TxQueue];
+	virtq->avail_idx = 0;
+	virtq->free_desc_list = mallocz(virtq->qsz * 2, 1);
+	if (virtq->free_desc_list == nil){
+		print("can't alloc free_desc_list\n");
 		goto virtq_error;
 	}
+
+	for(free_idx = 0; free_idx < virtq->qsz; free_idx++)
+		virtq->free_desc_list[free_idx] = free_idx;
+	virtq->free_desc_idx = --free_idx;
+	cfg->queue_select = TxQueue;
+
+
+cfg->queue_select = RxQueue;
+print("RX desc=%#llux driver=%#llux device=%#llux\n",
+    cfg->queue_desc,
+    cfg->queue_driver,
+    cfg->queue_device);
+
+cfg->queue_select = TxQueue;
+print("TX desc=%#llux driver=%#llux device=%#llux\n",
+    cfg->queue_desc,
+    cfg->queue_driver,
+    cfg->queue_device);
+	/* rx */
+	virtq = &ctlr->virtq[RxQueue];
+	
 	
  	/* config rx buffers */
 	virtq->avail->idx = 0;
@@ -405,7 +450,26 @@ virtq_init(Ctlr *ctlr)
 
 virtq_error:
 	print("\nvirtq error\n");
-	while(1) {}
+	return -1;
+	//while(1) {}
+}
+
+long
+get_free_desc(Virtq *virtq)
+{
+	return virtq->free_desc_idx < 0 ? -1 : 
+		virtq->free_desc_list[virtq->free_desc_idx--];
+}
+
+void
+set_free_desc(Virtq *virtq, u16int idx)
+{
+	u16int free_idx = virtq->free_desc_idx + 1;
+	if(free_idx < 0 || free_idx >= virtq->qsz){
+		print("free_desc corruption\n");
+		return;
+	}
+	virtq->free_desc_list[++virtq->free_desc_idx] = idx;
 }
 
 void
@@ -413,6 +477,10 @@ snd_virtio_attach(Ether *edev)
 {
 	Ctlr *ctlr;
 	ctlr = edev->ctlr;
+	ctlr->common_cfg->queue_select = RxQueue;
+	ctlr->common_cfg->queue_enable = 1;
+	ctlr->common_cfg->queue_select = TxQueue;
+	ctlr->common_cfg->queue_enable = 1;
 	//print("\nattach\n");
 	ctlr->common_cfg->device_status |= DRIVER_OK;
 	//while(1) {}
@@ -421,20 +489,122 @@ snd_virtio_attach(Ether *edev)
 void
 snd_virtio_transmit(Ether *edev)
 {
-	print("\ntransmit");
-	while(1) {}
+	Ctlr *ctlr;
+	Virtq *virtq;
+	Block *bp;
+	virtq_desc *desc;
+	static virtio_net_hdr *hdr = nil;
+	u16int normalized_idx;
+	long chain_head, chain_tail;
+	u32int qsz;
+	
+	//print("\ntransmit\n");
+	ctlr = edev->ctlr;
+	virtq = &ctlr->virtq[TxQueue];
+	qsz = virtq->qsz;
+	if(hdr == nil){
+		hdr = mallocz(sizeof(virtio_net_hdr), 1);
+		if (hdr == nil){
+			print("cannot alloc virtio_net_hdr\n");
+			//set_free_desc(virtq, (u16int)chain_head);
+			//set_free_desc(virtq, (u16int)chain_tail);
+			return;
+		}
+	}
+	//if(!canlock(ctlr))
+	//	return;
+	while((bp = qget(edev->oq)) != nil){
+		chain_head = get_free_desc(virtq);
+		if (chain_head < 0){
+			print("free_desc underflow\n");
+			return;
+		}
+		chain_tail = get_free_desc(virtq);
+		if( chain_tail < 0){
+			print("free_desc underflow\n");
+			set_free_desc(virtq, (u16int)chain_head);
+			return;
+		}
+		desc = &virtq->desc[chain_head];
+		if (hdr == nil){
+			print("cannot alloc virtio_net_hdr\n");
+			set_free_desc(virtq, (u16int)chain_head);
+			set_free_desc(virtq, (u16int)chain_tail);
+			return;
+		}
+		//memmove((u8int*)hdr + sizeof(*hdr), bp->rp, BLEN(bp));
+		//virtq->desc_virtual_addresses[chain_head] = (u64int*)hdr;
+		desc->addr = (u64int)PADDR(hdr);
+		desc->len = sizeof(virtio_net_hdr);
+		desc->flags = DESC_F_NEXT;
+		//desc->flags = 0;
+		//desc->next = 0;
+		desc->next = chain_tail;
+		desc = &virtq->desc[chain_tail];
+		virtq->desc_virtual_addresses[chain_tail] = (u64int*)bp;
+		desc->addr = PADDR(bp->rp);
+		desc->len = BLEN(bp);
+		desc->flags = 0;
+		desc->next = 0;
+
+		virtq->avail_ring[virtq->avail_idx++ % qsz] = chain_head;
+		
+	//virtq->avail->idx = virtq->avail_idx;
+	}
+	coherence();
+	virtq->avail->idx = virtq->avail_idx;
+	virtq_notify(virtq->notif_addr, TxQueue);
+	//print("free idx %d\n", virtq->free_desc_idx);
+}
+
+void
+snd_virtio_free_tx(Virtq *virtq)
+{
+
+	//print("free_tx\n");
+	//while(1){}
+	u16int idx;
+	virtq_desc *desc;
+	virtq_used_elem elem;
+	Block *bp;
+	//print("free tx\n");
+	while(virtq->last_used_idx != virtq->used->idx){
+		idx = virtq->last_used_idx % virtq->qsz;
+		elem = virtq->used_ring[idx];
+		//if(elem.len == sizeof(virtio_net_hdr)){
+		//	print("\nmatch virtio_net_hdr\n");
+		//	free(virtq->desc_virtual_addresses[elem.id]);
+		//} else{
+		//	print("\nAssume that desc is block\n");
+		//	//free(KADDR((u64int)virtq->desc[elem.id].addr));
+		//	//freeb((Block*)virtq->desc_virtual_addresses[elem.id]);
+		//}
+		desc = &virtq->desc[elem.id];
+		//free(KADDR(desc->addr));
+		set_free_desc(virtq, elem.id);
+		bp = (Block*)virtq->desc_virtual_addresses[desc->next];
+		//if (desc == nil){
+		//	print("bad desc next\n");
+		//	return;
+		//}
+		freeb(bp);
+		set_free_desc(virtq, desc->next);
+		virtq->last_used_idx++;
+	}
 }
 
 void
 snd_virtio_shutdown(Ether *edev)
 {
-	print("\nshutdown");
-	while(1) {}
+	print("\n\n\n\nshutdown\n\n\n\n");
+	//while(1) {}
 }
 
 char*
 snd_virtio_ifstat(void *a, char *p, char *e)
 {
+	return p;
+	print("ifstat\n");
 	Ether *edev;
 	Ctlr *ctlr;
 	
@@ -444,10 +614,10 @@ snd_virtio_ifstat(void *a, char *p, char *e)
 	edev = a;
 	ctlr = edev->ctlr;
 
-	p = seprint(p, e, "inpackets: %lld\n", edev->inpackets);
-	p = seprint(p, e, "outpackets: %lld\n", edev->outpackets);
+	//p = seprint(p, e, "inpackets: %lld\n", edev->inpackets);
+	//p = seprint(p, e, "outpackets: %lld\n", edev->outpackets);
 	p = seprint(p, e, "mbps: %d\n", edev->mbps);
-	p = seprint(p, e, "link: %d\n", edev->link);
+	//p = seprint(p, e, "link: %d\n", edev->link);
 	p = seprint(p, e, "mac: ");
 	for(int i = 0; i < Eaddrlen; i++){
 		if(i != Eaddrlen - 1)
@@ -455,7 +625,7 @@ snd_virtio_ifstat(void *a, char *p, char *e)
 		else
 			p = seprint(p, e, "%02X\n", edev->ea[i]);
 	}
-	p = seprint(p, e, "maxmtu: %d\n", edev->maxmtu);
+	//p = seprint(p, e, "maxmtu: %d\n", edev->maxmtu);
 	return p;
 }
 void
@@ -548,27 +718,21 @@ snd_virtio_interrupt(Ureg*, void *arg)
 {
 	Ether *edev;
 	Ctlr *ctlr;
-	Virtq *virtq;
+	Virtq *virtqrx, *virtqtx;
 	edev = arg;
 	ctlr = edev->ctlr;
-	virtq = &ctlr->virtq[RxQueue];
-
-	//u8int isr_status = *ctlr->isr_reg;
-	//print("Interrupt\n");
-	/*
-	print("reg: %x\n", isr_status);
-	u16int used_idx = virtq->used->idx;
-	u16int avail_idx = virtq->avail->idx;
-	u16int used_len = virtq->used_ring[0].len;
-	u16int used_id = virtq->used_ring[0].id;
+	virtqrx = &ctlr->virtq[RxQueue];
+	virtqtx = &ctlr->virtq[TxQueue];
 	
-	print("used idx: %d\n", used_idx);
-	print("avail_idx: %d\nused0_len: %d\nused0_id: %d\n", avail_idx, used_len, used_id);
-	*/
-
-	if(*ctlr->isr_reg & 1)
-		snd_virtio_receive(edev);
-	else
+	if(*ctlr->isr_reg & 1){
+		coherence();
+		if(virtqrx->used->idx != virtqrx->last_used_idx)
+			snd_virtio_receive(edev);
+	    if(virtqtx->used->idx != virtqtx->last_used_idx)
+			snd_virtio_free_tx(virtqtx);
+		//else
+		//	print("\nBad queue interrupt\n");
+	}else
 		print("\nNon receive interrupt\n");
 	//while(1) {}
 }
@@ -641,17 +805,21 @@ reset(Ether *edev)
 		}
 		else if(vendor == cap_cfg_vendor && cfg_type == cap_notification_cfg_type){
 			//print("notification\n");
-			if((len = get_cfg(&ctlr->notif_cap, p, cap)) == 0){
-				print("\nnotif_cap is nil!\n");
+			//print("\n\n\nnotif mult = %d\n", pcicfgr32(p, cap+16));
+			
+			if((len = get_cfg(&ctlr->notif_addr, p, cap)) == 0){
+				print("\nnotif_addr is nil!\n");
 				goto err;
 			}
+			ctlr->notify_off_multiplier = pcicfgr32(p, cap + cap_notify_off_multiplier);
+			//print("\n\nnotif mult = %d\n", *((u8int*)ctlr->notif_cap + 16));
 			ctlr->notif_len = len;
 		}
 		
 		cap = pcicfgr8(p, cap + cap_next);
 	}
 
-	if (ctlr->common_cfg == nil || ctlr->net_cfg == nil || ctlr->notif_cap == nil || ctlr->isr_reg == nil){
+	if (ctlr->common_cfg == nil || ctlr->net_cfg == nil || ctlr->notif_addr == nil || ctlr->isr_reg == nil){
 		print("\nDevice discovery error\n");
 		goto err;
 	}
@@ -695,15 +863,15 @@ reset(Ether *edev)
 	}
 	ctlr->next = nil;
 	edev->ctlr = ctlr;
-	edev->arg = edev;
+	//edev->arg = edev;
 	edev->attach = snd_virtio_attach;
 	edev->transmit = snd_virtio_transmit;
 	edev->shutdown = snd_virtio_shutdown;
-	edev->mbps = 100;
+	edev->mbps = 1000;
 	edev->irq = ctlr->p->intl;
 	edev->tbdf = ctlr->p->tbdf;
-	edev->minmtu = 68;
-	edev->maxmtu = 1500;
+	//edev->minmtu = 68;
+	//edev->maxmtu = 1500;
 	edev->link = 1;
 	edev->port = p->mem[4].bar & ~0xF; /* hardcoded */
 	edev->ifstat = snd_virtio_ifstat;
@@ -719,6 +887,7 @@ reset(Ether *edev)
 	//print("tbdf=%#ux\n", ctlr->p->tbdf);
 	//print("intl=%#ux\n", ctlr->p->intl);
 	virtq_notify(ctlr->virtq[0].notif_addr, RxQueue);
+	//virtq_notify(ctlr->virtq[1].notif_addr, TxQueue);
 	print("\nWe are here\n");
 	return 0;
 	//goto l;
@@ -729,7 +898,7 @@ err:
 		if(ctlr->net_len)
 			vunmap((void*)ctlr->net_cfg, ctlr->net_len);
 		if(ctlr->notif_len)
-			vunmap((void*)ctlr->notif_cap, ctlr->notif_len);
+			vunmap((void*)ctlr->notif_addr, ctlr->notif_len);
 		if(ctlr->isr_len)
 			vunmap((void*)ctlr->isr_reg, ctlr->isr_len);
 		free(ctlr);
@@ -739,8 +908,9 @@ err:
 	print("\nmemory freed\n");
 	return -1;
 l:
-	while(1) {}
+	//while(1) {}
 	//return 0;
+	return -1;
 }
 
 void
