@@ -603,21 +603,19 @@ snd_virtio_shutdown(Ether *edev)
 char*
 snd_virtio_ifstat(void *a, char *p, char *e)
 {
-	return p;
-	print("ifstat\n");
 	Ether *edev;
 	Ctlr *ctlr;
 	
 	if(p >= e)
 		return p;
-	
+
 	edev = a;
 	ctlr = edev->ctlr;
-
-	//p = seprint(p, e, "inpackets: %lld\n", edev->inpackets);
-	//p = seprint(p, e, "outpackets: %lld\n", edev->outpackets);
+	
+	p = seprint(p, e, "inpackets: %lld\n", edev->inpackets);
+	p = seprint(p, e, "outpackets: %lld\n", edev->outpackets);
 	p = seprint(p, e, "mbps: %d\n", edev->mbps);
-	//p = seprint(p, e, "link: %d\n", edev->link);
+	p = seprint(p, e, "link: %d\n", edev->link);
 	p = seprint(p, e, "mac: ");
 	for(int i = 0; i < Eaddrlen; i++){
 		if(i != Eaddrlen - 1)
@@ -625,7 +623,7 @@ snd_virtio_ifstat(void *a, char *p, char *e)
 		else
 			p = seprint(p, e, "%02X\n", edev->ea[i]);
 	}
-	//p = seprint(p, e, "maxmtu: %d\n", edev->maxmtu);
+	p = seprint(p, e, "maxmtu: %d\n", edev->maxmtu);
 	return p;
 }
 void
@@ -863,7 +861,7 @@ reset(Ether *edev)
 	}
 	ctlr->next = nil;
 	edev->ctlr = ctlr;
-	//edev->arg = edev;
+	edev->arg = edev;
 	edev->attach = snd_virtio_attach;
 	edev->transmit = snd_virtio_transmit;
 	edev->shutdown = snd_virtio_shutdown;
