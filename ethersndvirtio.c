@@ -359,10 +359,7 @@ virtq_init(Ctlr *ctlr)
 		cfg->queue_driver = PADDR(virtq->avail);
 		cfg->queue_device = PADDR(virtq->used);
 		//cfg->queue_enable = 1;
-		print("queue %d enable=%d ready=%d\n",
-    i,
-    cfg->queue_enable,
-    cfg->queue_enable);
+	
 		virtq->desc_virtual_addresses = mallocz(virtq->qsz * sizeof(u64int*), 1);
 		if(virtq->desc_virtual_addresses == nil){
 			print("can't alloc desc_virtual_addresses\n");
@@ -406,7 +403,8 @@ virtq_init(Ctlr *ctlr)
 	}
 	coherence();
 	virtq->avail->idx = virtq->avail_idx;
-
+	
+	virtq_notify(ctlr->virtq[0].notif_addr, RxQueue);
 	
 	return 0;
 
@@ -439,11 +437,13 @@ snd_virtio_attach(Ether *edev)
 {
 	Ctlr *ctlr;
 	ctlr = edev->ctlr;
+
+	//print("\nattach\n");
 	ctlr->common_cfg->queue_select = RxQueue;
 	ctlr->common_cfg->queue_enable = 1;
 	ctlr->common_cfg->queue_select = TxQueue;
 	ctlr->common_cfg->queue_enable = 1;
-	//print("\nattach\n");
+	
 	ctlr->common_cfg->device_status |= DRIVER_OK;
 }
 
@@ -838,9 +838,7 @@ reset(Ether *edev)
 	intrenable(edev->irq, snd_virtio_interrupt, edev, edev->tbdf, edev->name);
 	//print("tbdf=%#ux\n", ctlr->p->tbdf);
 	//print("intl=%#ux\n", ctlr->p->intl);
-	virtq_notify(ctlr->virtq[0].notif_addr, RxQueue);
-	//virtq_notify(ctlr->virtq[1].notif_addr, TxQueue);
-	print("\nWe are here\n");
+	
 	return 0;
 err:
 	if(ctlr != nil){
