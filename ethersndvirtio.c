@@ -87,38 +87,18 @@ struct virtio_pci_common_cfg{  /* About the who device. */
     volatile u16int admin_queue_num; /* read-only for driver */
 };
 
-//#pragma pack on
 struct virtio_net_cfg{
-    volatile u8int mac[6];
-    volatile u16int status;
-    volatile u16int max_virtqueue_pairs;
-   volatile u16int mtu;
-  volatile  u32int speed;
-   volatile u8int dupx;
-   volatile u8int rss_max_key_size;
-   volatile u16int rss_max_indirection_tab_ngth;
-   volatile u32int supported_hash_types;
-   volatile u32int supported_tunnel_types;
+    u8int mac[6];
+    u16int status;
+    u16int max_virtqueue_pairs;
+    u16int mtu;
+    u32int speed;
+    u8int dupx;
+    u8int rss_max_key_size;
+    u16int rss_max_indirection_tab_ngth;
+    u32int supported_hash_types;
+    u32int supported_tunnel_types;
 };
-/*
-struct notif_cap_base{
-	volatile	u8int cap_vendor;
-	volatile	u8int cap_next; 
-	volatile	u8int cap_len;
-	volatile	u8int cap_cfg_type;
-	volatile	u8int cap_bar;
-	volatile	u8int cap_id;	 
-	volatile	u8int padding[2]; 
-	volatile	u32int cap_bar_offset;
-	volatile	u32int cap_bar_len;
-	};
-//#pragma pack on
-struct virtio_notif_cap{
-	volatile struct notif_cap_base;
-volatile	u32int notify_off_multiplier;
-};
-
-*/
 
 enum{
 	NET_HDR_F_NEEDS_CSUM = 1,
@@ -135,15 +115,14 @@ enum{
 #define ETHERNET_BUF_SIZE sizeof(virtio_net_hdr) + ETHERNET_FRAME_MAX_SIZE
 };
 
-//#pragma pack on
 struct virtio_net_hdr{
-volatile	u8int  flags;
-volatile	u8int  gso_type;
-volatile	u16int hdr_len;
-volatile	u16int gso_size;
-volatile	u16int csum_start;
-volatile	u16int csum_offset;
-volatile	u16int num_buffers;
+	u8int  flags;
+	u8int  gso_type;
+	u16int hdr_len;
+	u16int gso_size;
+	u16int csum_start;
+	u16int csum_offset;
+	u16int num_buffers;
 
 };
 
@@ -153,7 +132,6 @@ enum{
 	DESC_F_INDIRECT = 4,
 };
 
-//#pragma pack on
 struct virtq_desc{
 	u64int addr;
 	u32int len;
@@ -166,62 +144,65 @@ enum{
 	USED_F_NO_NOTIFY 	 = 1,
 };
 
-//#pragma pack on
 struct Vring{
-volatile	u16int flags;
-volatile	volatile u16int idx;
+	u16int flags;
+	u16int idx;
 };
 
-//#pragma pack on
 struct virtq_used_elem{
-	volatile u32int id;
-	volatile u32int len;
+	u32int id;
+    u32int len;
 };
 
 enum{
 	RxQueue = 0,
 	TxQueue = 1,
 };
+
 #pragma pack off
 
 struct Virtq{
-	u16int qsz;
+	volatile u16int 		 *notif_addr;
+			 u16int 	     qsz;
+			 virtq_desc  	 *desc;
 
-volatile	virtq_desc  *desc;
-	u64int 		**desc_virtual_addresses;
-	u16int 		*free_desc_list;
-	u16int		free_desc_idx;
-	volatile Vring 		*avail;
-	u16int		avail_idx;
-	volatile u16int      *avail_ring;
-volatile	u16int      *avail_event;
+			 /* virtual memory addresses of used descriptors */
+			 u64int 		 **desc_virtual_addresses;
 
-volatile	Vring 			*used;
-volatile	virtq_used_elem *used_ring;
-	u16int 			last_used_idx;
-volatile	u16int          *used_event;
+			 /* stack of available descriptor indexes */
+			 u16int 		 *free_desc_list;
+			 u16int			 free_desc_idx;
 
-volatile	u16int *notif_addr;
-			
+			 Vring 			 *avail;
+			 u16int			 avail_idx;
+    		 u16int      	 *avail_ring;
+		   	 u16int      	 *avail_event;
+
+			 Vring 			 *used;
+			 virtq_used_elem *used_ring;
+			 u16int 		 last_used_idx;
+			 u16int          *used_event;			
 };
 
-struct Ctlr{
-	/* for cleanup */
-	u32int net_len, common_len, notif_len, isr_len;
-	
-	Lock;
-	QLock qlock;
-
-	Ctlr *next;
-	Pcidev				  *p;
-volatile	virtio_net_cfg 		  *net_cfg;
-volatile	virtio_pci_common_cfg *common_cfg;
-//volatile	virtio_notif_cap 	  *notif_cap;
-volatile	u32int				  *notif_addr;
-			u32int notify_off_multiplier;
-	volatile u8int 				  *isr_reg;
 #define NUM_VIRTQ 2 /* TODO add control virtq */
-volatile	Virtq virtq[NUM_VIRTQ];
+struct Ctlr{
+			/* for cleanup TODO maybe remove */
+			u32int net_len, common_len, notif_len, isr_len;
+	
+			Lock;
+			QLock 				  qlock;
+
+			Ctlr 				  *next;
+			Pcidev				  *p;
+
+  volatile	virtio_net_cfg 		  *net_cfg;
+  volatile	virtio_pci_common_cfg *common_cfg;
+  volatile	u32int				  *notif_addr;
+  volatile  u8int 				  *isr_reg;
+
+			u32int notify_off_multiplier;
+
+  			Virtq virtq[NUM_VIRTQ];
 };
 
 static Ctlr *ctlrhead = nil;
