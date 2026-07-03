@@ -50,7 +50,6 @@ enum{ /* Virtio features */
 
 typedef struct virtio_pci_common_cfg virtio_pci_common_cfg;
 typedef struct virtio_net_cfg virtio_net_cfg;
-//typedef struct virtio_notif_cap virtio_notif_cap;
 typedef struct virtq_desc virtq_desc;
 typedef struct Vring Vring;
 typedef struct Virtq Virtq;
@@ -371,13 +370,10 @@ virtq_init(Ctlr *ctlr)
 		}
 
 		virtq->notif_addr = (u16int*)((u8int*)notif_addr + ctlr->notify_off_multiplier * cfg->queue_notify_off);
-		print("notif addr: %p\n", virtq->notif_addr);
+		//print("notif addr: %p\n", virtq->notif_addr);
 		//print("mult: %d\n",  notif_cap->notify_off_multiplier);
 	}
 
-
-	print("RX notif=%p\n", ctlr->virtq[RxQueue].notif_addr);
-print("TX notif=%p\n", ctlr->virtq[TxQueue].notif_addr);
 	/* tx */
 	virtq = &ctlr->virtq[TxQueue];
 	virtq->avail_idx = 0;
@@ -392,23 +388,8 @@ print("TX notif=%p\n", ctlr->virtq[TxQueue].notif_addr);
 	virtq->free_desc_idx = --free_idx;
 	cfg->queue_select = TxQueue;
 
-
-cfg->queue_select = RxQueue;
-print("RX desc=%#llux driver=%#llux device=%#llux\n",
-    cfg->queue_desc,
-    cfg->queue_driver,
-    cfg->queue_device);
-
-cfg->queue_select = TxQueue;
-print("TX desc=%#llux driver=%#llux device=%#llux\n",
-    cfg->queue_desc,
-    cfg->queue_driver,
-    cfg->queue_device);
 	/* rx */
 	virtq = &ctlr->virtq[RxQueue];
-	
-	
- 	/* config rx buffers */
 	virtq->avail->idx = 0;
 	desc_size = ETHERNET_BUF_SIZE;
 	for(int i = 0; i < virtq->qsz; i++){
@@ -421,20 +402,20 @@ print("TX desc=%#llux driver=%#llux device=%#llux\n",
 		virtq->desc[i].flags = DESC_F_WRITE;
 		virtq->desc[i].len = desc_size;
 		virtq->avail_ring[i] = i;
-		//virtq->avail->flags = AVAIL_F_NO_INTERRUPT;
 		virtq->avail_idx++;
 	}
+	coherence();
 	virtq->avail->idx = virtq->avail_idx;
 
 	
 	return 0;
 
-virtq_error:
+virtq_error: /* TODO add handler for virtq_error */
 	print("\nvirtq error\n");
 	return -1;
-	//while(1) {}
 }
 
+/* long because we can return -1 */
 long
 get_free_desc(Virtq *virtq)
 {
@@ -464,7 +445,6 @@ snd_virtio_attach(Ether *edev)
 	ctlr->common_cfg->queue_enable = 1;
 	//print("\nattach\n");
 	ctlr->common_cfg->device_status |= DRIVER_OK;
-	//while(1) {}
 }
 
 void
@@ -541,9 +521,6 @@ snd_virtio_transmit(Ether *edev)
 void
 snd_virtio_free_tx(Virtq *virtq)
 {
-
-	//print("free_tx\n");
-	//while(1){}
 	u16int idx;
 	virtq_desc *desc;
 	virtq_used_elem elem;
@@ -578,7 +555,6 @@ void
 snd_virtio_shutdown(Ether *edev)
 {
 	print("\n\n\n\nshutdown\n\n\n\n");
-	//while(1) {}
 }
 
 char*
@@ -611,14 +587,12 @@ void
 snd_virtio_multicast(void *arg, uchar*, int)
 {
 	print("\nmulticast\n");
-	//while(1) {}
 }
 
 void
 snd_virtio_promiscuous(void *arg, int on)
 {
 	print("\npromiscuous\n");
-	//while(1) {}
 }
 
 void
@@ -713,7 +687,6 @@ snd_virtio_interrupt(Ureg*, void *arg)
 		//	print("\nBad queue interrupt\n");
 	}else
 		print("\nNon receive interrupt\n");
-	//while(1) {}
 }
 
 
@@ -869,7 +842,6 @@ reset(Ether *edev)
 	//virtq_notify(ctlr->virtq[1].notif_addr, TxQueue);
 	print("\nWe are here\n");
 	return 0;
-	//goto l;
 err:
 	if(ctlr != nil){
 		if(ctlr->common_len)
@@ -885,10 +857,6 @@ err:
 	if(p)
 		pcidisable(p);
 	print("\nmemory freed\n");
-	return -1;
-l:
-	//while(1) {}
-	//return 0;
 	return -1;
 }
 
