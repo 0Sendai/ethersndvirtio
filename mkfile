@@ -3,7 +3,7 @@ projdir = `{pwd}
 
 build:
 	cd $kerndir/pc64
-	mk install
+	mk install 'CONF=qemu'
 	cd $projdir
 
 bind: ethersndvirtio.c
