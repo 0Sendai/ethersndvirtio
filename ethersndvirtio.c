@@ -12,6 +12,16 @@
 #define SET_FEAT(buf, f) (buf) |= 1ULL << (f)
 
 
+/*
+ * Functions call order:
+ * 1) Kernel calls ethersndvirtiolink
+ * 2) ethersndvirtiolink calls register function
+ * 3) network stack calls reset function
+ * 4) on first network activity network stack calls attach function
+ * 5) on transmit, receive network stack calls transmit, receive func respectively
+ */
+
+
 enum{
 	vendor_id 				  = 0x1AF4,
 	device_id 				  = 0x1041,
